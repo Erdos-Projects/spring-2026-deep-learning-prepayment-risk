@@ -14,12 +14,16 @@ Competing risks survival model using `pycox`. Predicts monthly probability of de
 **Results:**
 | Metric | DeepHit | RF Baseline |
 |---|---|---|
-| Default top-decile lift | **2.58x** | ~2.0x |
-| Prepay top-decile lift | 2.25x | **~5.0x** |
+| Default top-decile lift | **2.58x** | ~2.7x |
+| Prepay top-decile lift | **2.25x** | — (see note) |
 | Default C-index | 0.639 | — |
 | Prepay C-index | 0.626 | — |
+| Default KS | **0.159** | 0.051 |
+| Prepay KS | 0.180 | **0.674** |
+| Default PR-AUC (t=36) | 0.009 | 0.010 |
+| Prepay PR-AUC (t=36) | **0.037** | 0.007 |
 
-DeepHit beats the RF on default discrimination but RF still dominates on prepay.
+Note: PR-AUC is not directly comparable across models — DeepHit uses loan-level scores (base rate ~0.7% default, ~4.9% prepay) vs RF monthly loan-month rows (base rate ~0.8% default, ~0.13% prepay). KS is more comparable: DeepHit has 3x better default separation (0.159 vs 0.051), while RF dominates prepay separation (0.674 vs 0.180).
 
 ### 2. Dynamic-DeepHit (`DynamicDeepHit.ipynb`)
 
