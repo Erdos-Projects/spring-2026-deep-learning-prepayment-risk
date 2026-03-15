@@ -1,80 +1,63 @@
 # Prepayment & Default Risk — Deep Learning Survival Analysis
 
-## What's in this branch
+## Summary
 
-### 1. Static DeepHit (`DeepHit.ipynb`)
+DeepHit competing-risks survival model for predicting loan default and prepayment. Trained on 113K Prosper loans (2005–2014) with 9 macro/loan features — no borrower-specific features, enabling use in Monte Carlo simulation.
 
-Competing risks survival model using `pycox`. Predicts monthly probability of default vs prepayment for each loan over 36 months.
+**Key result:** DeepHit beats the RF baseline on default (2.68x vs 1.2x top-decile lift) but trails on prepayment (KS 0.141 vs 0.67) due to the RF's structural advantage with `month_since_orig` at loan-month granularity.
 
-- **Why survival instead of classification?** The existing NCR approach failed due to extreme class imbalance (~0.4% monthly default). Survival framing eliminates this — instead of "will this loan default this month?", it asks "given survival to month t, what's the hazard?"
-- **17 features**: BorrowerRate, FED rate at origination, APR-FED spread, credit score, ProsperScore, ProsperRating, DTI, income, etc.
-- **Architecture**: 256→128→64 MLP (51K params) → [batch, 2, 36] output (2 risks × 36 months)
-- **Train/test**: ≤2012 / 2013-2014 (aligned with RF baseline holdout), 34K/43K loans
+## Models
 
-**Results:**
-| Metric | DeepHit | RF Baseline |
+### Static DeepHit (`DeepHit.ipynb`) — Best Model
+
+128→64→32 MLP (14K params) predicting monthly default/prepay probability over 36 months.
+
+| Metric | DeepHit | Morgan RF |
 |---|---|---|
-| Default top-decile lift | **2.58x** | ~2.7x |
-| Prepay top-decile lift | **2.25x** | — (see note) |
-| Default C-index | 0.639 | — |
-| Prepay C-index | 0.626 | — |
-| Default KS | **0.159** | 0.051 |
-| Prepay KS | 0.180 | **0.674** |
-| Default PR-AUC (t=36) | 0.009 | 0.010 |
-| Prepay PR-AUC (t=36) | **0.037** | 0.007 |
+| Default top-decile lift | **2.68x** | 1.2x |
+| Prepay top-decile lift | 1.42x | **2.5x** |
+| Default KS | **0.287** | 0.051 |
+| Prepay KS | 0.141 | **0.67** |
 
-Note: PR-AUC is not directly comparable across models — DeepHit uses loan-level scores (base rate ~0.7% default, ~4.9% prepay) vs RF monthly loan-month rows (base rate ~0.8% default, ~0.13% prepay). KS is more comparable: DeepHit has 3x better default separation (0.159 vs 0.051), while RF dominates prepay separation (0.674 vs 0.180).
+**9 features:** BorrowerRate, FED rate, T-bill rate, unemployment rate, APR-FED spread, APR-T-bill spread, loan amount (log), Term, monthly payment.
 
-### 2. Dynamic-DeepHit (`DynamicDeepHit.ipynb`)
+### Single-Risk DeepHit (`DeepHit_SingleRisk.ipynb`)
 
-Adds an LSTM encoder for time-varying features (FED rate path, spread momentum) on top of the static DeepHit.
+Two separate 128→64→32 MLPs — one for default, one for prepay — each treating the other event as censored. Improves prepay discrimination (KS 0.141→0.244) at the cost of default ranking (KS 0.287→0.204).
 
-**Result: failed.** The LSTM overfit to training-set rate movements that don't exist in the 2013-2014 test set (ZIRP — FED rate stuck at 0.1% with zero variance). Prepay C-index dropped to 0.498 (worse than random). Static DeepHit remains the best model.
+### Dynamic-DeepHit (`DynamicDeepHit.ipynb`)
 
-### 3. Monte Carlo Portfolio Simulation (`MonteCarloSimulation.ipynb`)
+LSTM(8→48) + MLP encoder for time-varying features. Higher default C-index (0.665 vs 0.579) but overfits — non-monotonic lift curves, worse KS and PR-AUC than static version.
 
-Chains all 3 project models to simulate portfolio performance under different FED rate scenarios:
+### Monte Carlo Simulation (`MonteCarloSimulation.ipynb`)
 
-**FED scenario → Model 2 (FED→T-bill) → Model 1 (FED+T-bill→APR) → Model 3 (DeepHit CIF) → cash flows → portfolio IRR**
+Chains all 3 project models: FED scenario → T-bill → borrower APR → DeepHit CIF → cash flows → portfolio IRR. Key finding: prepay rates swing 55% to 4% with FED rates; prepayment is the main driver of returns.
 
-Models 1 & 2 use simple placeholder functions (linear regression, median spread) marked with `# TODO` for teammates to swap in their trained models.
+## Split
 
-CIFs are calibrated to historical Kaplan-Meier base rates before cash flow computation (raw DeepHit CIFs are well-ranked but poorly calibrated in absolute terms).
+Train ≤2010 / Val 2011 / Test 2012-2014 (matching Morgan's RF, 1-year gap to prevent leakage).
 
-**Portfolio metrics (43K loans, $480M):**
-| Scenario | FED | Mean IRR | Default | Prepay |
-|---|---|---|---|---|
-| ZIRP | 0.1% | **+9.0%** | 25% | 55% |
-| Crisis cut | 0.25% | +1.7% | 28% | 15% |
-| Low | 1.0% | −1.5% | 24% | 4% |
-| Moderate | 2.5% | −4.5% | 23% | 5% |
-| High | 5.0% | **−10.7%** | 30% | 4% |
+## Setup
 
-Key finding: prepay rates swing wildly with FED rates (55% vs 4%), while default rates are stable (23-30%). Prepayment is the main driver of portfolio returns.
-
-Monte Carlo (K=500): IRR std is ±0.1-0.2% — idiosyncratic risk diversifies away with 43K loans, portfolio risk is purely systematic.
-
-## Environment Setup
-
-Requires **Python 3.10 or 3.11**. `pycox` and `torchtuples` are not compatible with Python 3.12+.
+Requires **Python 3.10 or 3.11** (`pycox`/`torchtuples` incompatible with 3.12+).
 
 ```bash
-conda create -n prepayment python=3.10 -y
-conda activate prepayment
+conda create -n prepayment python=3.10 -y && conda activate prepayment
 pip install -r requirements.txt
 ```
-
-In VS Code: open any `.ipynb` → kernel picker → **prepayment**.
 
 ## Files
 
 ```
-├── DeepHit.ipynb               # Static DeepHit model (best Model 3)
-├── DynamicDeepHit.ipynb         # Dynamic-DeepHit with LSTM (failed — ZIRP)
-├── MonteCarloSimulation.ipynb   # Goal 3: portfolio simulation under FED scenarios
+├── DeepHit.ipynb               # Static DeepHit competing-risks (best model)
+├── DeepHit_SingleRisk.ipynb    # Separate default & prepay models
+├── DynamicDeepHit.ipynb         # Dynamic-DeepHit with LSTM
+├── MonteCarloSimulation.ipynb   # Portfolio simulation under FED scenarios
 ├── data/
 │   ├── prosperLoanData.csv      # ~113K Prosper loans, 81 columns
 │   ├── FEDFUNDS.csv             # Monthly Federal Funds Rate
-│   └── TB3MS.csv                # 3-Month Treasury Bill rate
+│   ├── TB3MS.csv                # 3-Month Treasury Bill rate
+│   ├── UNRATE.csv               # Monthly Unemployment Rate
+│   └── MORTGAGE30US.csv         # 30-Year Fixed Mortgage Rate
 └── requirements.txt
 ```
