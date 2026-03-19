@@ -4,4 +4,25 @@ Our two Random Forests were the best non-deep learning model observed. We chose 
 
 All models struggle to predict defaults. In another file, [we train DeepHit](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/tree/main/DeepHit) with prepayments censored to try and enhance default prediction. Analysis on DeepHit make it unlikely that censoring defaults will improve prepayment preformance in LSTM and TabNet, though this was not thoroughly explored. 
 
-We conclude that overall performance and simplicity was dominated by our [Random Forest](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/Sample_Simulation/FinalRandomForest.ipynb) with a PR-AUC of 013 and a KS-Score of .51-.67 (dependent on training set). Random Forest dominance is likely due to the limited dataset, short data timeframe, extremely imbalanced data, and limited feature set. 
+**Results:**
+TabNet Model Results -  FED Data only (8 features + RF as feature) - All-in-one model
+                               Default      |       Prepayment  
+PR-AUC -                 0.015      |          .006
+Top 10% Lift -           1.2x       |            1.3x
+Notes: Performance improved on a smaller training set, but peaked by Epoch 4. Likely not rich enough data 
+
+LSTM Model Results - FED Data only (5 features)-All-in-one model 
+                               Default      |       Prepayment  
+PR-AUC -                  0.011     |           0.003 
+Top 10% Lift -           1.4x       |            2.8x - 3.1x (20 Epoch vs 30 Epoch)
+KS-Score -                 .088       |           0.515 
+
+RF Model Results - FED Data only (5 features) - 2 separate models
+                               Default      |       Prepayment  
+PR-AUC -                0.015       |           0.013 
+Top 10% Lift -         1.2x         |            2.5x         
+KS-Score            .051 - .081    |    .51-.67  (.51 on reduced train set, .67 on larger train set)
+
+
+
+We conclude that overall performance and simplicity was dominated by our [Random Forest](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/Sample_Simulation/FinalRandomForest.ipynb). Random Forest dominance is likely due to the limited dataset, short data timeframe, extremely imbalanced data, and limited feature set. 
