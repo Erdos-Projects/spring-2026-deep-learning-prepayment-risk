@@ -1,0 +1,1 @@
+We train Random Forests, LSTM, and TabNet on FED data + non-borrower based loan features to predict prepayments and defaults using survival analysis. Overall performance and simplicity was dominated by our [Random Forest](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/Sample_Simulation/FinalRandomForest.ipynb). 

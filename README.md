@@ -1,1 +1,22 @@
-# spring-2026-deep-learning-prepayment-risk
+# *Modelling Prepayment and Cash Flows in Personal Loan Pools*
+Team: Morgan Bryant, Sayantan Roy Chowdhury, Hatice Mutlu, Bobby Zhang
+
+# Overview:
+Personal‑loan portfolios held by banks are sensitive to borrowers’ early repayment decisions as well as borrower defaults. Early repayments and defaults alter how much total money is received, when it is received, and at what interest rates it can be reinvested. Realistic models of prepayment and default provide valuable insight into borrower behavior, supporting portfolio risk management and informing interest rate decisions. 
+
+In this project, we develop deep‑learning and non-deep learning models that (1) forecast future interest rates for small personal loans based on real macro-economic data, (2) predict, at the loan level, the probability and timing of prepayment/defaults, and (3) use these estimates to simulate portfolio‑level cash flows under different macroeconomic scenarios.
+
+# Datasets: 
+We use macroeconomic data from FRED, including the [unemployment rate (UNRATE)](https://fred.stlouisfed.org/series/UNRATE), the [federal funds effective interest rate (FEDFUNDS)](https://fred.stlouisfed.org/series/FEDFUNDS), and [3-month Treasury bill rates (TB3MS)](https://fred.stlouisfed.org/series/TB3MS). Our loan data comes from [Prosper](https://www.kaggle.com/datasets/henryokam/prosper-loan-data) and [Lending Club](https://www.kaggle.com/datasets/adarshsng/lending-club-loan-data-csv) loan data. Training data ranges from 2005–2014. 
+
+# Models & Methods:
+We developed two primary models. 
+
+Model 1 takes in macroeconomic data and loan data, and performs survival analysis to determine whether the loan is prepaid, defaults, or continues in a given month. We tested a range of standard and deep learning models, but no single model dominated both prepayment and default prediction. A [Random Forest (RF)](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/Sample_Simulation/FinalRandomForest.ipynb) performed best for prepayment prediction, showing strong class separation. [Our LSTM model](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/survival_prepayment_model/Survival_Prepayment_Model.ipynb) performed similarly for prepayment prediction, but did not justify the additional model complexity. [Our DeepHit model](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/DeepHit/DeepHit_SingleRisk.ipynb) performed best for default prediction, though overall performance remained modest.
+
+[Model 2](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/tree/main/Interest_Mean_Prediction) predicts the average interest rate for small personal loans in a given month using FEDFUNDS and TB3MS. A [SARIMAX(4, 0, 1)](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/Interest_Mean_Prediction/Jupyter_Notebooks/4.sarimax_future_forecast_tbill_notebook.ipynb) performed best out of a variety of models, with an RMSE of 0.0078, sharply outperforming deep learning alternatives. 
+
+Combining Models 1 and 2, we [simulated monthly cash flows during 2022–2024](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/blob/main/Sample_Simulation/LoanPoolSim.ipynb). We generated a pool of 500 small loans with start dates in 2022. We then used Model 2’s predictions to assign loan interest rates to these loans. Beginning January 2022, monthly cash flows were tracked by using Model 1’s output probabilities to determine whether a loan defaults, prepays, or continues. Model 1 predicted all loans to default early in 2023, which is an exaggeration of the real uptick of defaults that occurred at that time. This may be a result of training on data including 2008. 
+
+# Future Directions
+Our cash flow model highlights the need for stronger models that generalize across economic environments, particularly for default prediction. We observed deep learning models struggling with data imbalance, limited sample size, and limited features. Expanding datasets across more diverse economic conditions would likely improve performance, particularly for models such as LSTM. [Additional analysis](https://github.com/Erdos-Projects/spring-2026-deep-learning-prepayment-risk/tree/main/models_with_borrower_features) indicates that incorporating more borrower-level data substantially improves model performance on default prediction. Including borrower factors involves developing more robust models and loan pool generation techniques. 
