@@ -1,4 +1,4 @@
-## *Modelling Prepayment and Cash Flows in Personal Loan Pools*
+# *Modelling Prepayment and Cash Flows in Personal Loan Pools*
 Team: Morgan Bryant, Sayantan Roy Chowdhury, Hatice Mutlu, Bobby Zhang
 
 # Overview:
