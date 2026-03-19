@@ -1,261 +1,329 @@
-# Forecasting Pipelines README
+# Loan Interest Rate Forecasting Notebook Pipeline
 
-This repository contains three folder Data, Jupyter Notebooks and Scripts.
+This folder contains a four-notebook workflow for forecasting the **monthly average LendingClub loan interest rate** using LendingClub loan-level data together with macroeconomic variables, especially the **3-Month Treasury Bill rate**.
 
-Scripts conntain four Python scripts that cover data preparation, model comparison on the training set, SARIMAX ome step test evaluation, and future forecasting.
+The notebooks are written as a staged pipeline:
+
+1. prepare the monthly dataset and create the train/test split,
+2. run diagnostics and model selection on the training set,
+3. evaluate the selected models on the held-out test set using one-step-ahead forecasts,
+4. use the selected SARIMAX specification to forecast future monthly mean interest rates from future T-Bill inputs.
+
+---
+
+## Folder contents
+
+### `1.Train_Test_Split.ipynb`
+Builds the monthly modeling dataset from raw files.
+Download the data from https://www.kaggle.com/datasets/wordsforthewise/lending-club  and save it as LendingClub.csv in the Data folder.
+
+
+What it does:
+- loads raw LendingClub loan-level data from Kaggle,
+- cleans and sorts the loan data chronologically,
+- aggregates loans to a **monthly** level,
+- loads monthly macro series:
+  - `FEDFUNDS.csv`
+  - `tbill.csv`
+- merges the macro data with the LendingClub monthly aggregates,
+- checks for missing months,
+- creates a **chronological 75/25 train-test split**,
+- saves:
+  - `../Data/train.csv`
+  - `../Data/test.csv`
+
+Observed output in the notebook:
+- final merged monthly dataset: **139 rows**
+- train period: **2007-06 to 2016-01** (**104 rows**)
+- test period: **2016-02 to 2018-12** (**35 rows**)
+
+---
+
+### `2.Model_Implementations_Annotated.ipynb`
+Performs exploratory diagnostics, transformations, feature construction, rolling validation, and model comparison on the training set.
+
+What it does:
+- loads `../Data/train.csv`,
+- checks correlations and diagnostics,
+- performs STL decomposition and ADF stationarity checks,
+- applies transformations:
+  - **Box-Cox** transform to the target `int_rate_mean`,
+  - first and second differencing of the transformed target,
+  - **log + first difference** transform to `Treasury_data`,
+- uses **PACF-inspired target lags**:
+  - `target_lag_1`
+  - `target_lag_3`
+  - `target_lag_4`
+- uses `treasury_lag_1` as the exogenous macro feature,
+- evaluates models with **rolling one-step cross-validation** using:
+  - `TimeSeriesSplit(n_splits=20, test_size=1)`
+
+Models evaluated:
+- Naive baseline
+- Rolling average baseline
+- Ridge regression
+- SARIMAX
+- Random forest
+- MLP
+- RNN / LSTM / GRU family
+- 1D CNN
+
+Search setup used in the notebook:
+- Ridge alphas: `0.01, 0.1, 1.0, 10.0, 100.0`
+- Random forest:
+  - `n_estimators in {50, 100}`
+  - `max_depth in {3, 5, None}`
+- SARIMAX orders searched:
+  - `(p,0,q)` with `p in {2,3,4}`, `q in {0,1}`
+- Optuna trial budgets:
+  - MLP: `50`
+  - RNN: `30`
+  - CNN: `30`
+
+Key training-set rolling-validation result from the notebook:
+- **Best comparable classical model:** `SARIMAX(2,0,1)`
+- Validation metrics:
+  - **SARIMAX RMSE:** `0.190637`
+  - **SARIMAX MAE:** `0.138230`
+
+Comparable model table shown in the notebook:
+- SARIMAX: RMSE `0.190637`, MAE `0.138230`
+- Naive: RMSE `0.210555`, MAE `0.151338`
+- Ridge: RMSE `0.271028`, MAE `0.214878`
+- RandomForest: RMSE `0.285610`, MAE `0.213652`
+- RollingAvg4: RMSE `0.318288`, MAE `0.245548`
+
+Best deep-learning settings found in the notebook:
+- **MLP**
+  - `hidden_dim=24`
+  - `dropout=0.378016`
+  - `lr=0.007305`
+  - rolling validation RMSE `0.261729`
+- **RNN**
+  - `rnn_type=LSTM`
+  - `seq_length=5`
+  - `hidden_dim=4`
+  - `lr=0.021783`
+  - rolling validation RMSE `0.225552`
+- **CNN**
+  - `seq_length=4`
+  - `kernel_size=2`
+  - `num_filters=12`
+  - `lr=0.014647`
+  - rolling validation RMSE `0.259748`
+
+---
+
+### `3.Test_Set_One_Step_Forecasts_Annotated.ipynb`
+Evaluates the selected models on the held-out test set.
+
+What it does:
+- loads:
+  - `../Data/train.csv`
+  - `../Data/test.csv`
+- refits the same train-time transformations on the training portion,
+- builds the combined transformed series,
+- evaluates the selected fixed models on the **35-month test horizon**,
+- reconstructs predictions back to the original interest-rate scale,
+- generates comparison plots,
+- saves:
+  - `./test_set_forecast_outputs/all_test_predictions.csv`
+  - `./test_set_forecast_outputs/test_summary.csv`
+
+Fixed model choices used here:
+- `SARIMAX_ORDER = (2, 0, 1)`
+- MLP parameters from notebook 2
+- RNN parameters from notebook 2
+- CNN parameters from notebook 2
+
+Important implementation detail:
+- the SARIMAX test evaluation is **true one-step-ahead forecasting** on the test horizon:
+  after each prediction, the model state is updated with the **observed transformed test value** using `append(..., refit=False)`.
+
+Test-set summary shown in the notebook:
+- **SARIMAX(2,0,1)**: RMSE `0.313541`, MAE `0.220349`
+- **MLP**: RMSE `0.359538`, MAE `0.273506`
+- **RNN_GRU**: RMSE `0.382019`, MAE `0.296814`
+- **CNN_1D**: RMSE `0.395246`, MAE `0.301591`
+
+So the test notebook again identifies **SARIMAX(2,0,1)** as the best-performing model among the evaluated choices.
+
+---
+
+### `4.sarimax_future_forecast_tbill_notebook.ipynb`
+Uses the fixed SARIMAX model to forecast future average monthly interest rates from future T-Bill values.
+
+What it does:
+- loads:
+  - `../Data/train.csv`
+  - `../Data/tbill.csv`
+- applies the same train-time transformations used earlier,
+- fits the fixed `SARIMAX(2,0,1)` model on the transformed training target,
+- builds the future exogenous series from the T-Bill file,
+- recursively forecasts future monthly mean interest rates,
+- optionally computes RMSE and MAE **if the future file also contains actual target values**.
+
+Default settings in the notebook:
+- SARIMAX order: `(2, 0, 1)`
+- treasury lag: `1`
+
+Observed behavior in the saved notebook output:
+- the notebook produced future forecasts beginning immediately after the training period,
+- since the provided future T-Bill file did **not** include actual target values, RMSE and MAE were **not computed** in that run.
+
+Note:
+- this notebook defines `OUTPUT_DIR = "../outputs/sarimax_future"`, but in the uploaded version there is **no explicit save step** that writes the forecast dataframe to disk. The forecast dataframe is displayed in the notebook output.
+
+---
 
 ## Recommended execution order
 
-1. `train_test_pipeline.py`
-2. `model_implementations_pipeline.py`
-3. `sarimax_test_evaluator.py`
-4. `sarimax_future_forecast_pipeline.py`
+Run the notebooks in this order:
 
-## General requirements
+1. `1.Train_Test_Split.ipynb`
+2. `2.Model_Implementations_Annotated.ipynb`
+3. `3.Test_Set_One_Step_Forecasts_Annotated.ipynb`
+4. `4.sarimax_future_forecast_tbill_notebook.ipynb`
 
-Use Python 3.10+.
+This preserves the intended pipeline and the relative file dependencies.
 
-Typical packages used across the scripts:
+---
+
+## Expected data files
+
+These notebooks expect the following CSV files to exist:
+
+### Raw input files
+- `../Data/LendingClub.csv`
+- `../Data/FEDFUNDS.csv`
+- `../Data/tbill.csv`
+
+### Intermediate/generated files
+- `../Data/train.csv`
+- `../Data/test.csv`
+
+Important columns expected by the notebooks include:
+
+### `LendingClub.csv`
+- `id`
+- `issue_d`
+- `loan_amnt`
+- `term`
+- `int_rate`
+
+### `FEDFUNDS.csv`
+- `observation_date`
+- `FEDFUNDS`
+
+### `tbill.csv`
+- `observation_date`
+- `TB3MS`
+
+### generated training/test files
+- `Month`
+- `int_rate_mean`
+- `Treasury_data`
+- `fed_rate`
+- plus the monthly aggregate columns created in notebook 1
+
+---
+
+## Expected project layout
+
+The notebooks use relative paths like `../Data/...`, so they are designed for a structure similar to:
+
+```text
+project_root/
+├── Data/
+│   ├── LendingClub.csv
+│   ├── FEDFUNDS.csv
+│   ├── tbill.csv
+│   ├── train.csv
+│   └── test.csv
+└── notebooks/
+    ├── 1.Train_Test_Split.ipynb
+    ├── 2.Model_Implementations_Annotated.ipynb
+    ├── 3.Test_Set_One_Step_Forecasts_Annotated.ipynb
+    └── 4.sarimax_future_forecast_tbill_notebook.ipynb
+```
+
+If your folder structure is different, update the path variables at the top of each notebook.
+
+---
+
+## Main modeling choices used throughout the folder
+
+### Target
+- `int_rate_mean`  
+  Monthly average LendingClub loan interest rate.
+
+### Exogenous macro variable
+- `Treasury_data`
+  Built from the 3-Month Treasury Bill series and used with a one-month lag.
+
+### Transformations
+- target:
+  - Box-Cox
+  - first difference
+  - second difference
+- treasury:
+  - positive shift if needed
+  - log transform
+  - first difference
+
+### Main lag features
+- target lags: `1, 3, 4`
+- treasury lag: `1`
+
+### Main selected model
+- `SARIMAX(2,0,1)` with lagged treasury input
+
+---
+
+## Python dependencies
+
+The notebooks use packages such as:
+
 - `pandas`
 - `numpy`
+- `matplotlib`
 - `scipy`
 - `scikit-learn`
 - `statsmodels`
-- `matplotlib`
 - `optuna`
 - `torch`
 - `seaborn`
+- `IPython`
 
-Notes:
-- `model_implementations_pipeline.py`, `sarimax_test_evaluator.py` and `sarimax_future_forecast_pipeline.py` attempt to install missing packages automatically.
-- `train_test_pipeline.py` only requires pandas.
+A minimal install command is:
+
+```bash
+pip install pandas numpy matplotlib scipy scikit-learn statsmodels optuna torch seaborn ipython
+```
 
 ---
 
-## 1. `train_test_pipeline.py`
+## Outputs produced by the folder
 
-### What it does
-Builds a monthly modeling dataset by:
-- loading LendingClub loan-level data,
-- loading Treasury Bill and Fed Funds macro data,
-- cleaning and aggregating the loan data to monthly level,
-- merging the macro series,
-- creating a chronological train/test split,
-- saving the resulting CSV files.
+### From notebook 1
+- `../Data/train.csv`
+- `../Data/test.csv`
 
-### Main inputs
-Required files:
-- LendingClub CSV (`--lendingclub-file`)
-- Fed Funds CSV (`--fedfunds-file`)
-- T-Bill CSV (`--tbill-file`)
+### From notebook 3
+- `./test_set_forecast_outputs/all_test_predictions.csv`
+- `./test_set_forecast_outputs/test_summary.csv`
 
-Expected columns:
-- LendingClub file: `id`, `issue_d`, `loan_amnt`, `term`, `int_rate`
-- Fed Funds file: `observation_date`, `FEDFUNDS`
-- T-Bill file: `observation_date`, `TB3MS`
-
-### Main arguments
-- `--lendingclub-file` *(required)*
-- `--fedfunds-file` *(required)*
-- `--tbill-file` *(required)*
-- `--output-dir` *(default: current directory)*
-- `--train-filename` *(default: `train.csv`)*
-- `--test-filename` *(default: `test.csv`)*
-- `--save-full-dataset` *(optional flag)*
-- `--full-filename` *(default: `lendingclub_fed_tbill.csv`)*
-- `--split-ratio` *(default: `0.75`)*
-- `--macro-lookback-months` *(default: `12`)*
-
-### How to run
-```bash
-python train_test_pipeline.py \
-  --lendingclub-file ../Data/LendingClub.csv \
-  --fedfunds-file ../Data/FEDFUNDS.csv \
-  --tbill-file ../Data/tbill.csv \
-  --output-dir ../outputs
-```
-
-### Outputs
-- `train.csv`
-- `test.csv`
-- optionally the full merged dataset, e.g. `lendingclub_fed_tbill.csv`
+### From notebook 4
+- displayed forecast dataframe in the notebook
+- optional RMSE / MAE if actual future targets are supplied
 
 ---
 
-## 2. `model_implementations_pipeline.py`
+## Summary
 
-### What it does
-Runs the training-set model comparison pipeline. It:
-- loads the monthly training dataset,
-- performs diagnostics such as ACF/PACF, STL decomposition, ADF tests, and correlations,
-- applies the transformation pipeline used for forecasting,
-- creates lagged modeling features,
-- evaluates baseline, classical ML, and deep learning models using rolling-origin validation,
-- saves comparison tables, summaries, and optionally plots.
+This folder implements a complete small-sample monthly forecasting workflow for LendingClub average loan interest rates. The notebooks consistently use the same transformation pipeline, compare classical and deep-learning models fairly, and show that:
 
-### Main input
-Required file:
-- Monthly training CSV (`--data-file`), usually the `train.csv` produced by `train_test_pipeline.py`
-
-Expected columns:
-- required: `Month`, `int_rate_mean`, `Treasury_data`
-- optional but used in diagnostics if present: `fed_rate`
-
-### Main arguments
-- `--data-file` *(required)*
-- `--output-dir` *(default: `outputs/model_implementations`)*
-- `--mlp-trials` *(default: `50`)*
-- `--rnn-trials` *(default: `30`)*
-- `--cnn-trials` *(default: `30`)*
-- `--skip-plots` *(optional flag)*
-- `--skip-diagnostics` *(optional flag)*
-
-### How to run
-```bash
-python model_implementations_pipeline.py \
-  --data-file ../Data/train.csv \
-  --output-dir ../outputs/model_implementations
-```
-
-### Outputs
-Saved under the output directory, including:
-- `tables/missing_summary.csv`
-- `tables/adf_summary.csv`
-- `tables/fold_schedule.csv`
-- `tables/baseline_predictions.csv`
-- `tables/baseline_summary.csv`
-- `tables/ridge_search_results.csv`
-- `tables/sarimax_search_results.csv`
-- `tables/random_forest_search_results.csv`
-- `tables/comparable_models.csv`
-- `tables/deep_learning_summary.csv`
-- `experiment_summary.json`
-- plot files under `plots/` unless plotting is skipped
-
-### Purpose in the workflow
-Use this script to determine which model configuration performs best on the training set under rolling validation.
-
----
-
-## 3. `sarimax_test_evaluator.py`
-
-### What it does
-Fits the fixed SARIMAX model selected on the training set and evaluates it on a held-out test set. It:
-- applies the same train-time transformations,
-- builds the lagged Treasury exogenous feature,
-- fits SARIMAX on transformed training data,
-- forecasts across the full test horizon,
-- reconstructs predictions back to the original target scale,
-- computes RMSE and MAE if the test file contains actual target values.
-
-### Main inputs
-Required files:
-- training CSV (`--train-file`)
-- test CSV (`--test-file`)
-
-Expected columns:
-- training file: `Month`, `int_rate_mean`, `Treasury_data`
-- test file: `Month`, `Treasury_data`
-- optional in test file for scoring: `int_rate_mean`
-
-### Main arguments
-- `--train-file` *(required)*
-- `--test-file` *(required)*
-- `--output-dir` *(default: `outputs/sarimax_test_eval`)*
-- `--date-col` *(default: `Month`)*
-- `--target-col` *(default: `int_rate_mean`)*
-- `--treasury-col` *(default: `Treasury_data`)*
-- `--sarimax-order` *(default: `2 0 1`)*
-
-### How to run
-```bash
-python sarimax_test_evaluator.py \
-  --train-file train.csv \
-  --test-file test.csv \
-  --output-dir outputs/sarimax_test_eval
-```
-
-Or explicitly set the fixed order:
-```bash
-python sarimax_test_evaluator.py \
-  --train-file train.csv \
-  --test-file test.csv \
-  --output-dir outputs/sarimax_test_eval \
-  --sarimax-order 2 0 1
-```
-
-### Outputs
-- `sarimax_test_predictions.csv`
-- `sarimax_test_metrics.json`
-- `transform_state.json`
-
-### Purpose in the workflow
-Use this after the best SARIMAX order has already been chosen from the training-set experiments.
-
----
-
-## 4. `sarimax_future_forecast_pipeline.py`
-
-### What it does
-Uses the trained SARIMAX workflow to forecast future mean interest rates from future T-Bill data. It:
-- loads the train dataset and a future T-Bill dataset,
-- applies the same training transformations,
-- fits SARIMAX on transformed training data,
-- forecasts future transformed values using T-Bill data and previous outputs
-- reconstructs the forecasts back to the original target scale,
-- optionally computes RMSE and MAE if the future file also contains actual target values,
-- saves forecast artifacts and optionally a forecast plot.
-
-### Main inputs
-Required files:
-- training CSV (`--train-file`)
-- future CSV (`--future-file`)
-
-Expected columns:
-- training file: `Month`, `int_rate_mean`, `Treasury_data`
-- future file: by default `observation_date`, `TB3MS`
-- optional in future file for scoring: `int_rate_mean`
-
-### Main arguments
-- `--train-file` *(required)*
-- `--future-file` *(required)*
-- `--output-dir` *(default: `outputs/sarimax_future`)*
-- `--date-col-train` *(default: `Month`)*
-- `--date-col-future` *(default: `observation_date`)*
-- `--target-col` *(default: `int_rate_mean`)*
-- `--tbill-col-train` *(default: `Treasury_data`)*
-- `--tbill-col-future` *(default: `TB3MS`)*
-- `--sarimax-order` *(default: `2,0,1`)*
-- `--tbill-lag` *(default: `1`)*
-- `--keep-overlapping-future` *(optional flag)*
-- `--save-plot` *(optional flag)*
-- `--show-plot` *(optional flag)*
-
-### How to run
-```bash
-python sarimax_future_forecast_pipeline.py \
-  --train-file ../Data/train.csv \
-  --future-file ../Data/tbill.csv \
-  --output-dir outputs/sarimax_future \
-  --date-col-train Month \
-  --date-col-future observation_date \
-  --target-col int_rate_mean \
-  --tbill-col-train Treasury_data \
-  --tbill-col-future TB3MS \
-  --sarimax-order 2,0,1 \
-  --save-plot
-```
-
-### Outputs
-- `sarimax_future_forecasts.csv`
-- `sarimax_future_forecast_summary.json`
-- `transform_state.json`
-- `fitted_sarimax_params.json`
-- `sarimax_model_summary.txt`
-- optionally `sarimax_future_forecast.png`
-
-### Purpose in the workflow
-Use this when you want forward forecasts beyond the train/test split, driven by future T-Bill values.
-
----
+- **SARIMAX(2,0,1)** is the best model in rolling validation,
+- it is also the strongest performer on the held-out test set,
+- deep learning models are competitive but do **not** beat the selected SARIMAX model on this dataset.
 
